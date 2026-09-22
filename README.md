@@ -2,11 +2,12 @@
 
 # 🏎️ F1-led-sync
 
-**Turn your F1 TV broadcast into a real-time LED light show.**
+**Turn your F1 broadcast into a real-time LED light show.**
 
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-red.svg)](https://opencv.org/)
+[![Telegram](https://img.shields.io/badge/Telegram-@delfino_cchione-2CA5E0?logo=telegram&logoColor=white)](https://t.me/delfino_cchione)
 
 🇬🇧 **English** &nbsp;|&nbsp; [🇮🇹 Italiano](README.it.md)
 
@@ -16,25 +17,52 @@
 
 ### 📖 What is it
 
-**F1-led-sync** analyzes your screen in real time while you're watching F1 and translates what happens on track into **light effects on a WS2812B LED strip**.
-
-Yellow flag comes out? Your room glows yellow. Safety car? Flashing. Leclerc or Hamilton set a fast sector? The strip shows the right color. Incoming team radio? A small indicator lights up.
+**F1-led-sync** analyzes your screen in real time while you're watching F1 and turns what happens on track into **light effects on a WS2812B LED strip**.
 
 Fully automatic, fully real-time, nothing to touch.
 
+### 🔍 How it works
+
+**Automatic F1 overlay recognition** via computer vision (OpenCV). The script continuously reads your screen, detects flags, driver sectors and team radio overlays, and sends the corresponding commands to an Arduino that drives the LED strip.
+
+---
+
+### 🏁 Flags
+
+| 🎨 Event on screen | 💡 Effect on the LED strip |
+|:---|:---|
+| 🟡 **Yellow flag** | Strip **flashes yellow** |
+| 🟡 **VSC or SC ending** | Strip **flashes yellow** |
+| 🟡 **VSC or SC active** | Solid **yellow** |
+| 🔴 **Red flag** | Solid **red** |
+| 🚦 **Pit Exit Closed** | **Last 10 LEDs light up red** |
+
+---
+
+### 🏎️ Drivers
+
+| 🎨 Event on screen | 💡 Effect on the LED strip |
+|:---|:---|
+| 📻 **Team radio** from Leclerc or Hamilton | **Last 10 LEDs light up red** (out of the 60 total) |
+| 🟣🟢🟡 **Sectors** of Leclerc or Hamilton on the lower part of the screen | **3 groups of 10 LEDs** follow the 3 sector colors (purple / green / yellow) |
+
+Drivers are **customizable**: you can set whichever driver you want by creating custom templates (see below).
+
+---
+
 ### ✨ Features
 
-- 📺 **Automatic F1 TV overlay recognition** via computer vision (OpenCV)
+- 📺 **Automatic F1 overlay recognition** via computer vision (OpenCV)
 - 🔧 **Automatic scaling** to any screen resolution (1080p, 1440p, 4K)
 - 🔌 **Automatic serial port detection** — no manual COM5 / ttyUSB0 configuration
 - 🏁 **Full flag handling**: green, yellow, red, VSC, Safety Car, Pit Exit Closed
 - 🟣 **Driver sectors**: purple (fastest), green (personal best), yellow (slower)
-- 📻 **Team radio indicator** for configured drivers
+- 📻 **Team radio indicator** for the configured drivers
 - 🛡️ **No random crashes**: if a template or Arduino is missing, the script keeps running and reports the issue
 
-### 🎥 Demo
+### 🎬 Want to see it in action?
 
-> *[Add a GIF or short video showing the system in action here]*
+No video or GIF demo is included in the repository. **If you'd like to see videos of the system running, photos, or anything else, just message me on [Telegram](https://t.me/delfino_cchione)** — I'll send you everything you need to see how it works in real life.
 
 ### 🧰 What you need
 
@@ -46,7 +74,7 @@ Fully automatic, fully real-time, nothing to touch.
 | **Arduino** (UNO, Nano, Mega...) | Any model with a USB port |
 | **5V power supply** for the strip | Sized based on LED count (60 mA per LED at full brightness) |
 | **Breadboard + jumper wires** | Just for wiring |
-| **PC** with Windows / Linux / macOS | Must have a free USB port and F1 TV visible on screen |
+| **PC** with Windows / Linux / macOS | Must have a free USB port and F1 visible on screen |
 
 #### Software
 
@@ -103,15 +131,9 @@ The system **automatically scales** all templates and zones to your screen resol
 
 By default the system follows **Charles Leclerc** and **Lewis Hamilton**.
 
-Adding other drivers requires creating **custom templates** (cropped screenshots of the F1 TV overlay) that must be pixel-perfect. A couple of pixels off and the recognition fails silently.
+Adding other drivers requires creating **custom templates** (cropped screenshots of the F1 overlay) that must be pixel-perfect.
 
-That's why it's not documented step-by-step: if you want to follow other drivers, **message me on Telegram** ([@delfino_cchione](https://t.me/delfino_cchione)) with:
-
-- The driver(s) you want to follow
-- Your screen resolution
-- Your operating system
-
-I'll prepare the correct templates and send them ready to use.
+That's why it's not documented step-by-step: **if you're struggling with it and want to follow other drivers, message me on [Telegram](https://t.me/delfino_cchione)**.
 
 ### 📁 Project structure
 
@@ -124,7 +146,7 @@ F1-led-sync/
 ├── README.it.md           # Italian readme
 ├── LICENSE
 │
-│   # Templates (grayscale images)
+│   # Templates
 ├── blocco_leclerc_1.png
 ├── blocco_hamilton_1.png
 ├── Lec_TR.png
@@ -141,19 +163,6 @@ F1-led-sync/
 
 > ⚠️ **Important**: all files must stay in the **same folder**.
 
-### 🎮 Supported commands
-
-| Command | Meaning | Effect |
-|---|---|---|
-| `G` | Green flag | Whole strip green |
-| `Y` | Yellow flag / VSC / SC | Whole strip orange |
-| `R` | Red flag | Whole strip red |
-| `B` | Flashing yellow flag | Orange blink 250ms |
-| `PEC` | Pit Exit Closed | First 10 LEDs red |
-| `TR` | Incoming team radio | Last 5 LEDs red |
-| `XXX` | No event | Strip off |
-| `PYX`, `PVX`... | 3-sector status | 3 groups of 10 colored LEDs |
-
 ### 🛠️ Troubleshooting
 
 **"No Arduino detected"**
@@ -167,7 +176,7 @@ F1-led-sync/
 
 **Flags not detected**
 - Verify `MONITOR_INDEX` is the correct monitor
-- F1 TV must be in **fullscreen**
+- The screen must be in **fullscreen**
 
 ### 📄 License
 
@@ -180,6 +189,10 @@ Personal, unofficial project. Not affiliated with Formula 1, FOM, FIA, Sky or an
 ---
 
 <div align="center">
+
+### 💬 Questions? Need help?
+
+[![Telegram](https://img.shields.io/badge/Message_me_on_Telegram-@delfino_cchione-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/delfino_cchione)
 
 **Made with ❤️ for the F1 community**
 
