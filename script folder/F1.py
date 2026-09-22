@@ -8,6 +8,12 @@ based on F1 TV overlay recognition (international feed).
 
 Risoluzione di riferimento template: 2560 x 1440
 Reference template resolution: 2560 x 1440
+
+Usa dxcam per la cattura a bassa latenza se disponibile (Windows),
+altrimenti fallback automatico a mss.
+
+Uses dxcam for low-latency capture when available (Windows),
+otherwise automatic fallback to mss.
 """
 
 import os
@@ -19,6 +25,17 @@ import cv2
 import numpy as np
 import serial
 import serial.tools.list_ports
+
+# --- BACKEND DI CATTURA / CAPTURE BACKEND -------------------
+# dxcam è opzionale: se non è installato o non funziona, si usa mss.
+# dxcam is optional: if not installed or not working, mss is used.
+
+try:
+    import dxcam
+    _HAS_DXCAM = True
+except ImportError:
+    _HAS_DXCAM = False
+
 from mss import mss
 
 # ============================================================
@@ -109,8 +126,6 @@ ARDUINO_VID_PID = {
 }
 
 def trova_porta_arduino():
-    # Cerca automaticamente una porta seriale con Arduino collegato.
-    # Automatically searches for a serial port with Arduino connected.
     try:
         porte = list(serial.tools.list_ports.comports())
     except Exception as e:
@@ -165,8 +180,6 @@ def scale_template(t, sx, sy):
 # ============================================================
 
 def carica(path):
-    # Carica un template in scala di grigi. Ritorna None se manca.
-    # Loads a template in grayscale. Returns None if missing.
     if not path:
         return None
     full = os.path.join(BASE_DIR, path)
@@ -175,7 +188,6 @@ def carica(path):
         log.warning(f"⚠️  Template mancante / missing: {path}")
     return img
 
-# Bandiere / Flags
 FLAG_FILES = {
     'pit_closed': 'pit_closed.png',
     'gialla':     'gialla.png',
@@ -247,21 +259,16 @@ def check_bandiere(gray_roi, flags):
     return ""
 
 # ============================================================
-#  SETUP (caricamento template + connessione Arduino)
-#  SETUP (template loading + Arduino connection)
+#  SETUP (template + Arduino)
 # ============================================================
 
 def setup():
-    # Carica i template delle bandiere.
-    # Loads flag templates.
     flag_full = {}
     for k, f in FLAG_FILES.items():
         t = carica(f)
         if t is not None:
             flag_full[k] = t
 
-    # Carica i template dei piloti.
-    # Loads driver templates.
     piloti_tpl = []
     for p in PILOTI:
         code = p["code"]
@@ -275,8 +282,6 @@ def setup():
     if not piloti_tpl:
         log.warning("⚠️  Nessun pilota valido / No valid drivers")
 
-    # Connessione Arduino.
-    # Arduino connection.
     porta = os.environ.get("F1LED_PORT") or trova_porta_arduino()
     arduino = None
 
@@ -295,6 +300,68 @@ def setup():
     return flag_full, piloti_tpl, arduino
 
 # ============================================================
+#  SETUP CATTURA SCHERMO / SCREEN CAPTURE SETUP
+# ============================================================
+
+def setup_capture():
+    """
+    Prova a usare dxcam (bassa latenza, Windows only).
+    Fallback automatico a mss se non disponibile o non funziona.
+    Ritorna: (use_dxcam, camera, sct, mon, real_w, real_h)
+    """
+    use_dxcam = _HAS_DXCAM
+    camera = None
+    sct = None
+    mon = None
+    real_w = real_h = 0
+
+    if use_dxcam:
+        try:
+            # dxcam usa indici 0-based, mss 1-based per i monitor fisici.
+            # dxcam uses 0-based index, mss uses 1-based for physical monitors.
+            output_idx = max(0, MONITOR_INDEX - 1)
+            camera = dxcam.create(output_idx=output_idx, output_color="BGRA")
+            if camera is None:
+                use_dxcam = False
+            else:
+                # Il primo grab può restituire None finché non è inizializzato.
+                # The first grab may return None until initialized.
+                frame = None
+                for _ in range(20):
+                    frame = camera.grab()
+                    if frame is not None:
+                        break
+                    time.sleep(0.05)
+                if frame is None:
+                    try:
+                        camera.release()
+                    except Exception:
+                        pass
+                    use_dxcam = False
+                    camera = None
+                else:
+                    real_h, real_w = frame.shape[:2]
+                    log.info("⚡ Backend cattura / capture backend: dxcam (low latency)")
+        except Exception as e:
+            log.warning(f"⚠️  dxcam non disponibile, uso mss / dxcam not available, using mss: {e}")
+            use_dxcam = False
+            camera = None
+
+    if not use_dxcam:
+        sct = mss()
+        if MONITOR_INDEX >= len(sct.monitors):
+            log.warning(f"⚠️  Monitor {MONITOR_INDEX} non disponibile, uso il primario.")
+            log.warning(f"⚠️  Monitor {MONITOR_INDEX} not available, using primary.")
+            mon = sct.monitors[1]
+        else:
+            mon = sct.monitors[MONITOR_INDEX]
+        real_w = mon['width']
+        real_h = mon['height']
+        log.info("🖥️  Backend cattura / capture backend: mss")
+
+    return use_dxcam, camera, sct, mon, real_w, real_h
+
+# ============================================================
 #  MAIN LOOP
 # ============================================================
 
@@ -311,156 +378,164 @@ def main():
     larghezza     = LARGHEZZA_AREA_FULL
     altezza       = ALTEZZA_AREA_FULL
 
+    use_dxcam, camera, sct, mon, real_w, real_h = setup_capture()
+
     try:
-        with mss() as sct:
-            # Se il monitor richiesto non esiste, uso il primario.
-            # If requested monitor doesn't exist, use primary.
-            if MONITOR_INDEX >= len(sct.monitors):
-                log.warning(f"⚠️  Monitor {MONITOR_INDEX} non disponibile, uso il primario.")
-                log.warning(f"⚠️  Monitor {MONITOR_INDEX} not available, using primary.")
-                mon = sct.monitors[1]
-            else:
-                mon = sct.monitors[MONITOR_INDEX]
+        sx = real_w / BASE_W
+        sy = real_h / BASE_H
+        s_avg = (sx + sy) / 2.0
 
-            real_w = mon['width']
-            real_h = mon['height']
+        log.info(f"📺 Risoluzione rilevata / Detected resolution: {real_w}x{real_h}")
 
-            sx = real_w / BASE_W
-            sy = real_h / BASE_H
-            s_avg = (sx + sy) / 2.0
+        # Scala zone / Scale zones
+        zone_bandiere = [scale_zone(z, sx, sy) for z in zone_bandiere]
+        zone_radar    = [scale_zone(z, sx, sy) for z in zone_radar]
+        zone_tr       = [scale_zone(z, sx, sy) for z in zone_tr]
 
-            log.info(f"📺 Risoluzione rilevata / Detected resolution: {real_w}x{real_h}")
+        # Scala costanti interne / Scale internal constants
+        distanza_y = scale_int(distanza_y, s_avg)
+        offsets    = [int(round(o * s_avg)) for o in offsets]
+        larghezza  = scale_int(larghezza, s_avg)
+        altezza    = scale_int(altezza, s_avg)
 
-            # Scala zone / Scale zones
-            zone_bandiere = [scale_zone(z, sx, sy) for z in zone_bandiere]
-            zone_radar    = [scale_zone(z, sx, sy) for z in zone_radar]
-            zone_tr       = [scale_zone(z, sx, sy) for z in zone_tr]
+        # Scala template / Scale templates
+        for k, v in list(flag_full.items()):
+            if v is not None:
+                flag_full[k] = scale_template(v, sx, sy)
+        for p in piloti_tpl:
+            if p["settori"] is not None:
+                p["settori"] = scale_template(p["settori"], sx, sy)
+            if p["tr"] is not None:
+                p["tr"] = scale_template(p["tr"], sx, sy)
 
-            # Scala costanti interne / Scale internal constants
-            distanza_y = scale_int(distanza_y, s_avg)
-            offsets    = [int(round(o * s_avg)) for o in offsets]
-            larghezza  = scale_int(larghezza, s_avg)
-            altezza    = scale_int(altezza, s_avg)
+        log.info("🏎️  SISTEMA F1 ONLINE ATTIVO / F1 SYSTEM ONLINE")
 
-            # Scala template / Scale templates
-            for k, v in list(flag_full.items()):
-                if v is not None:
-                    flag_full[k] = scale_template(v, sx, sy)
-            for p in piloti_tpl:
-                if p["settori"] is not None:
-                    p["settori"] = scale_template(p["settori"], sx, sy)
-                if p["tr"] is not None:
-                    p["tr"] = scale_template(p["tr"], sx, sy)
+        ultimo_inviato = ""
+        locked = None
+        n_piloti_settori = len([p for p in piloti_tpl if p["settori"] is not None])
 
-            log.info("🏎️  SISTEMA F1 ONLINE ATTIVO / F1 SYSTEM ONLINE")
-
-            ultimo_inviato = ""
-            locked = None
-
-            # Pre-calcolo: quanti piloti hanno il template settori?
-            # Pre-computed: how many drivers have sectors template?
-            n_piloti_settori = len([p for p in piloti_tpl if p["settori"] is not None])
-
-            while True:
-                try:
+        while True:
+            # --- Cattura frame / Frame capture ---
+            try:
+                if use_dxcam:
+                    img_bgra = camera.grab()
+                    if img_bgra is None:
+                        # Nessun frame nuovo disponibile, riprova al prossimo giro.
+                        # No new frame available, retry next loop.
+                        time.sleep(0.001)
+                        continue
+                else:
                     img_bgra = np.array(sct.grab(mon))
-                except Exception as e:
-                    log.error(f"❌ Errore cattura schermo / screen grab error: {e}")
-                    time.sleep(1)
+            except Exception as e:
+                log.error(f"❌ Errore cattura schermo / screen grab error: {e}")
+                time.sleep(1)
+                continue
+
+            # --- 1. BANDIERE / FLAGS ---
+            cmd_bandiere = ""
+            for z in zone_bandiere:
+                x0, y0 = z['left'], z['top']
+                x1, y1 = x0 + z['width'], y0 + z['height']
+                roi = img_bgra[y0:y1, x0:x1]
+                if roi.size == 0:
                     continue
+                g = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
+                res = check_bandiere(g, flag_full)
+                if res != "":
+                    cmd_bandiere = res
+                    break
 
-                # --- 1. BANDIERE / FLAGS ---
-                cmd_bandiere = ""
-                for z in zone_bandiere:
-                    x0, y0 = z['left'], z['top']
-                    x1, y1 = x0 + z['width'], y0 + z['height']
-                    roi = img_bgra[y0:y1, x0:x1]
-                    if roi.size == 0:
+            # --- 2. ANCORE + SETTORI / ANCHORS + SECTORS ---
+            detections = {}
+            for z in zone_radar:
+                x0, y0 = z['left'], z['top']
+                x1, y1 = x0 + z['width'], y0 + z['height']
+                roi = img_bgra[y0:y1, x0:x1]
+                if roi.size == 0:
+                    continue
+                g = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
+
+                for p in piloti_tpl:
+                    if p["settori"] is None:
                         continue
-                    g = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
-                    res = check_bandiere(g, flag_full)
-                    if res != "":
-                        cmd_bandiere = res
-                        break
+                    v, loc = match_fixed(g, p["settori"])
+                    if v > TH_ANCHOR and loc is not None:
+                        sett = read_settori_bgra(roi, loc[0], loc[1],
+                                                 offsets, distanza_y,
+                                                 larghezza, altezza)
+                        if p["code"] not in detections or v > detections[p["code"]][0]:
+                            detections[p["code"]] = (v, sett)
 
-                # --- 2. ANCORE + SETTORI / ANCHORS + SECTORS ---
-                detections = {}
-                for z in zone_radar:
-                    x0, y0 = z['left'], z['top']
-                    x1, y1 = x0 + z['width'], y0 + z['height']
-                    roi = img_bgra[y0:y1, x0:x1]
-                    if roi.size == 0:
-                        continue
-                    g = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
+                if len(detections) >= n_piloti_settori:
+                    break
 
-                    for p in piloti_tpl:
-                        if p["settori"] is None:
-                            continue
-                        v, loc = match_fixed(g, p["settori"])
-                        if v > TH_ANCHOR and loc is not None:
-                            sett = read_settori_bgra(roi, loc[0], loc[1],
-                                                     offsets, distanza_y,
-                                                     larghezza, altezza)
-                            if p["code"] not in detections or v > detections[p["code"]][0]:
-                                detections[p["code"]] = (v, sett)
+            # --- 3. LOCK ISTANTANEO / INSTANT LOCK ---
+            cmd_settori = "XXX"
+            if locked is not None and locked not in detections:
+                locked = None
 
-                    if len(detections) >= n_piloti_settori:
-                        break
-
-                # --- 3. LOCK ISTANTANEO / INSTANT LOCK ---
-                cmd_settori = "XXX"
-                if locked is not None and locked not in detections:
-                    locked = None
-
-                if locked is None:
-                    for code in PRIORITA:
-                        if code in detections:
-                            v, sett = detections[code]
-                            if sett != "XXX":
-                                locked = code
-                                cmd_settori = sett
-                                break
-                else:
-                    cmd_settori = detections[locked][1]
-
-                # --- 4. TEAM RADIO ---
-                cmd_tr = ""
-                if locked is None and not detections:
-                    for z in zone_tr:
-                        x0, y0 = z['left'], z['top']
-                        x1, y1 = x0 + z['width'], y0 + z['height']
-                        roi = img_bgra[y0:y1, x0:x1]
-                        if roi.size == 0:
-                            continue
-                        g = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
-                        for p in piloti_tpl:
-                            if p["tr"] is not None and check_template(g, p["tr"], TH_TR):
-                                cmd_tr = "TR"
-                                break
-                        if cmd_tr:
+            if locked is None:
+                for code in PRIORITA:
+                    if code in detections:
+                        v, sett = detections[code]
+                        if sett != "XXX":
+                            locked = code
+                            cmd_settori = sett
                             break
+            else:
+                cmd_settori = detections[locked][1]
 
-                # --- 5. PRIORITÀ FINALE / FINAL PRIORITY ---
-                if cmd_bandiere != "":
-                    cmd_finale = cmd_bandiere
-                elif cmd_settori != "XXX":
-                    cmd_finale = cmd_settori
-                elif cmd_tr != "":
-                    cmd_finale = cmd_tr
-                else:
-                    cmd_finale = "XXX"
+            # --- 4. TEAM RADIO ---
+            cmd_tr = ""
+            if locked is None and not detections:
+                for z in zone_tr:
+                    x0, y0 = z['left'], z['top']
+                    x1, y1 = x0 + z['width'], y0 + z['height']
+                    roi = img_bgra[y0:y1, x0:x1]
+                    if roi.size == 0:
+                        continue
+                    g = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
+                    for p in piloti_tpl:
+                        if p["tr"] is not None and check_template(g, p["tr"], TH_TR):
+                            cmd_tr = "TR"
+                            break
+                    if cmd_tr:
+                        break
 
-                if cmd_finale != ultimo_inviato:
-                    if arduino:
-                        try:
-                            arduino.write((cmd_finale + "\n").encode())
-                        except Exception as e:
-                            log.error(f"❌ Errore invio seriale / serial send error: {e}")
-                    ultimo_inviato = cmd_finale
+            # --- 5. PRIORITÀ FINALE / FINAL PRIORITY ---
+            if cmd_bandiere != "":
+                cmd_finale = cmd_bandiere
+            elif cmd_settori != "XXX":
+                cmd_finale = cmd_settori
+            elif cmd_tr != "":
+                cmd_finale = cmd_tr
+            else:
+                cmd_finale = "XXX"
 
-                time.sleep(0.01)
+            if cmd_finale != ultimo_inviato:
+                if arduino:
+                    try:
+                        arduino.write((cmd_finale + "\n").encode())
+                    except Exception as e:
+                        log.error(f"❌ Errore invio seriale / serial send error: {e}")
+                ultimo_inviato = cmd_finale
+
+            time.sleep(0.01)
 
     finally:
+        # Rilascia dxcam / Release dxcam
+        if camera is not None:
+            try:
+                camera.release()
+            except Exception:
+                pass
+        # Chiudi mss / Close mss
+        if sct is not None:
+            try:
+                sct.close()
+            except Exception:
+                pass
+        # Chiudi seriale / Close serial
         if arduino:
             try:
                 arduino.close()
@@ -480,8 +555,6 @@ if __name__ == "__main__":
         log.error("❌ ERRORE / ERROR:")
         log.error(traceback.format_exc())
     finally:
-        # Tiene la finestra aperta, così leggi l'errore.
-        # Keeps window open so you can read the error.
         try:
             input("\nPremi INVIO per chiudere... / Press ENTER to close...")
         except Exception:
