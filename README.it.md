@@ -2,11 +2,12 @@
 
 # 🏎️ F1-led-sync
 
-**Trasforma la diretta F1 in uno spettacolo di luci LED in tempo reale.**
+**Trasforma la F1 in uno spettacolo di luci in tempo reale.**
 
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-red.svg)](https://opencv.org/)
+[![Telegram](https://img.shields.io/badge/Telegram-@delfino_cchione-2CA5E0?logo=telegram&logoColor=white)](https://t.me/delfino_cchione)
 
 [🇬🇧 English](README.md) &nbsp;|&nbsp; 🇮🇹 **Italiano**
 
@@ -16,15 +17,42 @@
 
 ### 📖 Cos'è
 
-**F1-led-sync** analizza in tempo reale lo schermo su cui stai guardando la F1 e traduce quello che succede in pista in **effetti luminosi su una striscia LED WS2812B**.
-
-Quando esce una bandiera gialla, la tua stanza si illumina di giallo. Quando c'è una safety car, lampeggia. Quando Leclerc o Hamilton fanno un settore veloce, la striscia mostra il colore giusto. Team radio in arrivo? Piccolo indicatore luminoso.
+**F1-led-sync** analizza in tempo reale lo schermo su cui stai guardando la F1 e trasforma quello che succede in pista in **effetti luminosi su una striscia LED WS2812B**.
 
 Tutto automatico, tutto in tempo reale, senza toccare nulla.
 
+### 🔍 Come funziona
+
+**Riconoscimento automatico dell'overlay F1** tramite computer vision (OpenCV). Lo script legge continuamente lo schermo, rileva bandiere, settori dei piloti e team radio, e invia i comandi corrispondenti ad Arduino che pilota la striscia LED.
+
+---
+
+### 🏁 Bandiere
+
+| 🎨 Evento a schermo | 💡 Effetto sulla striscia LED |
+|:---|:---|
+| 🟡 **Bandiera gialla** | La striscia **lampeggia di giallo** |
+| 🟡 **VSC o SC in fase di chiusura** | La striscia **lampeggia di giallo** |
+| 🟡 **VSC o SC attiva** | Il giallo **rimane fisso** |
+| 🔴 **Bandiera rossa** | Il rosso **rimane fisso** |
+| 🚦 **Pit Exit Closed** | **Gli ultimi 10 LED si accendono di rosso** |
+
+---
+
+### 🏎️ Piloti
+
+| 🎨 Evento a schermo | 💡 Effetto sulla striscia LED |
+|:---|:---|
+| 📻 **Team radio** di Leclerc o Hamilton | **Gli ultimi 10 LED si accendono di rosso** (sui 60 totali della striscia) |
+| 🟣🟢🟡 **Settori** di Leclerc o Hamilton nella parte bassa dello schermo | **3 gruppi di 10 LED** seguono i colori dei 3 settori (viola / verde / giallo) |
+
+I piloti sono **personalizzabili**: puoi impostare quelli che vuoi creando template su misura (vedi sotto).
+
+---
+
 ### ✨ Caratteristiche
 
-- 📺 **Riconoscimento automatico dell'overlay F1 TV** tramite computer vision (OpenCV)
+- 📺 **Riconoscimento automatico dell'overlay F1** tramite computer vision (OpenCV)
 - 🔧 **Scalatura automatica** a qualsiasi risoluzione (1080p, 1440p, 4K)
 - 🔌 **Rilevamento automatico della porta seriale** — niente COM5 / ttyUSB0 da configurare
 - 🏁 **Gestione completa delle bandiere**: verde, gialla, rossa, VSC, Safety Car, Pit Exit Closed
@@ -32,9 +60,9 @@ Tutto automatico, tutto in tempo reale, senza toccare nulla.
 - 📻 **Indicatore team radio** per i piloti configurati
 - 🛡️ **Nessun crash improvviso**: se manca un template o l'Arduino, lo script continua e segnala l'errore
 
-### 🎥 Demo
+### 🎬 Vuoi vedere il sistema in azione?
 
-> *[Aggiungi qui una GIF o un breve video che mostra il sistema in funzione]*
+Nel repository non ci sono video o GIF demo. **Se vuoi vedere video del sistema in funzione, foto, o qualsiasi altro contenuto, scrivimi tranquillamente su [Telegram](https://t.me/delfino_cchione)** — ti mando tutto quello che ti serve per capire come funziona dal vivo.
 
 ### 🧰 Cosa ti serve
 
@@ -103,15 +131,9 @@ Il sistema **scala automaticamente** tutti i template e le zone alla risoluzione
 
 Di default il sistema segue **Charles Leclerc** e **Lewis Hamilton**.
 
-Aggiungere altri piloti richiede la creazione di **template personalizzati** (ritagli di screenshot dell'overlay F1 TV) che devono essere precisi al pixel. Un ritaglio sbagliato di pochi pixel fa fallire silenziosamente il riconoscimento.
+Aggiungere altri piloti richiede la creazione di **template personalizzati** (ritagli di screenshot dell'overlay F1) che devono essere precisi al pixel.
 
-Per questo non è documentato passo-passo: se vuoi seguire altri piloti, **scrivimi su Telegram** ([@delfino_cchione](https://t.me/delfino_cchione)) con:
-
-- Il pilota (o i piloti) che vuoi seguire
-- La risoluzione del tuo schermo
-- Il sistema operativo
-
-Ti preparo io i template corretti e te li mando pronti all'uso.
+Per questo non è documentato passo-passo: **se hai difficoltà nel farlo e vuoi seguire altri piloti, scrivimi su [Telegram](https://t.me/delfino_cchione)**.
 
 ### 📁 Struttura del progetto
 
@@ -124,7 +146,7 @@ F1-led-sync/
 ├── README.it.md           # Readme italiano (questo file)
 ├── LICENSE
 │
-│   # Template (immagini in scala di grigi)
+│   # Template
 ├── blocco_leclerc_1.png
 ├── blocco_hamilton_1.png
 ├── Lec_TR.png
@@ -141,19 +163,6 @@ F1-led-sync/
 
 > ⚠️ **Importante**: tutti i file devono rimanere nella **stessa cartella**.
 
-### 🎮 Comandi supportati
-
-| Comando | Significato | Effetto |
-|---|---|---|
-| `G` | Bandiera verde | Tutta la striscia verde |
-| `Y` | Bandiera gialla / VSC / SC | Tutta la striscia arancione |
-| `R` | Bandiera rossa | Tutta la striscia rossa |
-| `B` | Bandiera gialla lampeggiante | Lampeggio arancione 250ms |
-| `PEC` | Pit Exit Closed | Primi 10 LED rossi |
-| `TR` | Team radio in arrivo | Ultimi 5 LED rossi |
-| `XXX` | Nessun evento | Striscia spenta |
-| `PYX`, `PVX`... | Stato dei 3 settori | 3 gruppi di 10 LED colorati |
-
 ### 🛠️ Risoluzione problemi
 
 **"Nessun Arduino rilevato"**
@@ -167,7 +176,7 @@ F1-led-sync/
 
 **Le bandiere non vengono rilevate**
 - Verifica che `MONITOR_INDEX` punti al monitor giusto
-- F1 TV deve essere in **fullscreen**
+- Lo schermo deve essere in **fullscreen**
 
 ### 📄 Licenza
 
@@ -180,6 +189,10 @@ Progetto personale e non ufficiale. Non affiliato con Formula 1, FOM, FIA, Sky o
 ---
 
 <div align="center">
+
+### 💬 Hai domande? Hai bisogno di aiuto?
+
+[![Telegram](https://img.shields.io/badge/Scrivimi_su_Telegram-@delfino_cchione-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/delfino_cchione)
 
 **Fatto con ❤️ per la community F1**
 
