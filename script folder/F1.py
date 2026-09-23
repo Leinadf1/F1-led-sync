@@ -27,9 +27,6 @@ import serial
 import serial.tools.list_ports
 
 # --- BACKEND DI CATTURA / CAPTURE BACKEND -------------------
-# dxcam è opzionale: se non è installato o non funziona, si usa mss.
-# dxcam is optional: if not installed or not working, mss is used.
-
 try:
     import dxcam
     _HAS_DXCAM = True
@@ -306,8 +303,8 @@ def setup():
 def setup_capture():
     """
     Prova a usare dxcam (bassa latenza, Windows only).
-    Fallback automatico a mss se non disponibile o non funziona.
-    Ritorna: (use_dxcam, camera, sct, mon, real_w, real_h)
+    Se il monitor richiesto non esiste, usa il primario con dxcam.
+    Fallback a mss solo se dxcam non è disponibile o fallisce del tutto.
     """
     use_dxcam = _HAS_DXCAM
     camera = None
@@ -317,15 +314,23 @@ def setup_capture():
 
     if use_dxcam:
         try:
-            # dxcam usa indici 0-based, mss 1-based per i monitor fisici.
-            # dxcam uses 0-based index, mss uses 1-based for physical monitors.
             output_idx = max(0, MONITOR_INDEX - 1)
-            camera = dxcam.create(output_idx=output_idx, output_color="BGRA")
+
+            try:
+                camera = dxcam.create(output_idx=output_idx, output_color="BGRA")
+            except IndexError:
+                if output_idx != 0:
+                    log.warning("⚠️  dxcam: indice non valido, provo col primario.")
+                    log.warning("⚠️  dxcam: invalid index, trying primary.")
+                    camera = dxcam.create(output_idx=0, output_color="BGRA")
+                else:
+                    raise
+
             if camera is None:
                 use_dxcam = False
             else:
-                # Il primo grab può restituire None finché non è inizializzato.
-                # The first grab may return None until initialized.
+                # Warm-up: il primo grab può restituire None.
+                # Warm-up: first grab may return None.
                 frame = None
                 for _ in range(20):
                     frame = camera.grab()
@@ -420,8 +425,6 @@ def main():
                 if use_dxcam:
                     img_bgra = camera.grab()
                     if img_bgra is None:
-                        # Nessun frame nuovo disponibile, riprova al prossimo giro.
-                        # No new frame available, retry next loop.
                         time.sleep(0.001)
                         continue
                 else:
